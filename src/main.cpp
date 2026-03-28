@@ -141,6 +141,7 @@ struct AppState {
     std::string scad_status;
     double      scad_last_edit    = -1.0;  // ImGui time of last keystroke, -1 = idle
     bool        scad_eval_pending = false; // WASM: async eval in flight
+    bool        show_catalonia    = false;
 };
 
 static constexpr double DEBOUNCE_SECS = 0.1;
@@ -179,6 +180,57 @@ static void MainLoopStep()
         }
     }
 #endif
+
+    // ---- Menu bar ----------------------------------------------------------
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("About")) {
+            if (ImGui::MenuItem("Information about Catalonia"))
+                g_app.show_catalonia = true;
+            ImGui::EndMenu();
+        }
+        ImGui::EndMainMenuBar();
+    }
+
+    // ---- Catalonia info window ---------------------------------------------
+    if (g_app.show_catalonia) {
+        ImGui::SetNextWindowSize({520, 400}, ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Information about Catalonia", &g_app.show_catalonia)) {
+            ImGui::TextWrapped(
+                "Catalonia (Catalunya) is an autonomous community in northeastern "
+                "Spain, bordered by France and Andorra to the north, the "
+                "Mediterranean Sea to the east, and the regions of Aragon and "
+                "Valencia to the west and south.\n\n"
+
+                "BARCELONA\n"
+                "The capital is a world-class city famed for Antoni Gaudi's "
+                "extraordinary architecture: the still-unfinished Sagrada Familia "
+                "basilica, the undulating Casa Batllo and Casa Mila (La Pedrera), "
+                "and the fairy-tale Park Guell. The Gothic Quarter, Barceloneta "
+                "beach, and the boulevard of La Rambla draw millions of visitors "
+                "every year.\n\n"
+
+                "NATURE\n"
+                "Beyond the city you will find the volcanic landscape of La Garrotxa, "
+                "the jagged peaks of Montserrat with its revered Black Madonna, the "
+                "wild Costa Brava coves, the Pyrenean valleys of the Vall d'Aran, and "
+                "the Ebro Delta wetlands — a paradise for birdwatchers.\n\n"
+
+                "CULTURE & FOOD\n"
+                "Catalan is a co-official language with Spanish. The region has its "
+                "own distinct culture, traditions (castellers, sardana dancing, human "
+                "towers), and one of the great cuisines of Europe — from pa amb "
+                "tomaquet (bread rubbed with tomato) to world-renowned restaurants "
+                "like El Celler de Can Roca in Girona.\n\n"
+
+                "HISTORY\n"
+                "Catalonia has a rich history stretching back to Roman Tarraco "
+                "(modern Tarragona), through the medieval Crown of Aragon, to the "
+                "modern era. The region has a strong sense of its own national "
+                "identity and a lively contemporary cultural scene."
+            );
+        }
+        ImGui::End();
+    }
 
     // ---- Info window -------------------------------------------------------
     ImGui::Begin("Info");
