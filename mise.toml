@@ -5,6 +5,7 @@ emsdk = "latest"
 watchexec = "latest"
 node = "22"
 jq = "latest"
+ripgrep = "latest"
 
 [tasks.desktop]
 description = "Build (if needed) and run the desktop app"
