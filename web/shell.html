@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no"/>
+    <title>Dear ImGui Emscripten example</title>
+    <style>
+        body { margin: 0; background-color: black; overflow: hidden; }
+        /* FIXME: with our GLFW example this block seems to break resizing and io.DisplaySize gets stuck */
+        .emscripten {
+            position: absolute;
+            top: 0px;
+            left: 0px;
+            margin: 0px;
+            border: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: block;
+            image-rendering: optimizeSpeed;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -o-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+            -ms-interpolation-mode: nearest-neighbor;
+        }
+        #canvas:focus {
+          outline: none;
+        }
+    </style>
+  </head>
+  <body>
+    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex=-1></canvas>
+    <script type='text/javascript'>
+      var Module = {
+        preRun: [],
+        postRun: [],
+        print: (function() {
+            return function(text) {
+                text = Array.prototype.slice.call(arguments).join(' ');
+                console.log(text);
+            };
+        })(),
+        printErr: function(text) {
+            text = Array.prototype.slice.call(arguments).join(' ');
+            console.error(text);
+        },
+        canvas: (function() {
+            var canvas = document.getElementById('canvas');
+            //canvas.addEventListener("webglcontextlost", function(e) { alert('FIXME: WebGL context lost, please reload the page'); e.preventDefault(); }, false);
+            return canvas;
+        })(),
+        setStatus: function(text) {
+            console.log("status: " + text);
+        },
+        monitorRunDependencies: function(left) {
+            // no run dependencies to log
+        }
+      };
+      window.onerror = function() {
+        console.log("onerror: " + event);
+      };
+    </script>
+    {{{ SCRIPT }}}
+    <!--
+      Pre-initialize the OpenSCAD WASM instance in the background while the app
+      loads.  C++ polls globalThis._openscadReady before calling js_evaluate_scad.
+    -->
+    <script type="module">
+      // Just expose the factory — a fresh instance is created per evaluation
+      // so the runtime is never in a post-exit state on the second call.
+      import OpenSCAD from './openscad.js';
+      // Store under a private name — the Emscripten shutdown of each instance
+      // clears globalThis.OpenSCAD, so we must not use that name for the factory.
+      globalThis._openscadFactory = OpenSCAD;
+    </script>
+    <script>
+      // SDL2's Emscripten backend calls preventDefault() on all keydown events,
+      // which blocks browser shortcuts (dev tools, reload, etc.).
+      // We register a capture-phase listener so those shortcuts reach the browser.
+
+      // Hidden textarea used to capture paste events without navigator.clipboard
+      // (which triggers a Chrome permission popup). Focusing it right before the
+      // browser fires the paste event is enough for the event to land here.
+      var _pasteTA = document.createElement('textarea');
+      _pasteTA.style.cssText = 'position:fixed;left:-9999px;top:-9999px;opacity:0;width:1px;height:1px';
+      _pasteTA.setAttribute('tabindex', '-1');
+      _pasteTA.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(_pasteTA);
+      _pasteTA.addEventListener('paste', function(e) {
+        var text = e.clipboardData && e.clipboardData.getData('text/plain');
+        if (text) globalThis._pendingPaste = text;
+        e.preventDefault();
+        document.getElementById('canvas').focus();
+      });
+
+      window.addEventListener('keydown', function(e) {
+        var ctrl  = e.ctrlKey || e.metaKey;
+        var shift = e.shiftKey;
+        var k     = e.key;
+
+        // Let browser-native shortcuts through before SDL can preventDefault them.
+        var isBrowserShortcut =
+          k === 'F12' ||
+          k === 'F5'  ||
+          (ctrl && shift && (k === 'I' || k === 'i' ||  // Ctrl+Shift+I  (devtools)
+                             k === 'J' || k === 'j' ||  // Ctrl+Shift+J  (console)
+                             k === 'C' || k === 'c')) || // Ctrl+Shift+C  (inspector)
+          (ctrl && k === 'r') || (ctrl && k === 'R') ||  // Ctrl+R reload
+          (ctrl && k === 'l') || (ctrl && k === 'L');    // Ctrl+L address bar
+        if (isBrowserShortcut) {
+          e.stopImmediatePropagation(); // SDL never sees this event
+          return;
+        }
+
+        // Clipboard paste: redirect focus to the hidden textarea so the browser
+        // fires the paste event there instead of swallowing it on the canvas.
+        // No permission prompt — the user's own Ctrl+V is the gesture.
+        if (ctrl && (k === 'v' || k === 'V') && !e.repeat) {
+          _pasteTA.value = '';
+          _pasteTA.focus();
+          // (don't stopImmediatePropagation — SDL/ImGui can see Ctrl+V, it just
+          //  pastes "" from GetClipboardTextFn which is harmless)
+        }
+      }, { capture: true });
+    </script>
+  </body>
+</html>

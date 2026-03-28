@@ -1,0 +1,34 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "desktop",
+      "displayName": "Desktop (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/desktop",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "desktop-release",
+      "displayName": "Desktop (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/desktop-release",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "wasm",
+      "displayName": "WebAssembly (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "desktop", "configurePreset": "desktop" },
+    { "name": "desktop-release", "configurePreset": "desktop-release" },
+    { "name": "wasm", "configurePreset": "wasm" }
+  ]
+}

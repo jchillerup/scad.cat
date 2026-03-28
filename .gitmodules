@@ -1,0 +1,9 @@
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "external/ImGuizmo"]
+	path = external/ImGuizmo
+	url = https://github.com/CedricGuillemet/ImGuizmo.git
+[submodule "external/glm"]
+	path = external/glm
+	url = https://github.com/g-truc/glm.git
