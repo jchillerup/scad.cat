@@ -14,7 +14,7 @@ module.exports = defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
 
   use: {
-    baseURL: 'http://localhost:8080',
+    baseURL: 'http://localhost:8081',
     // Clipboard permission is needed for the copy round-trip test.
     permissions: ['clipboard-read', 'clipboard-write'],
     // Pass --no-sandbox in CI (GitHub Actions Ubuntu containers need it).
@@ -30,8 +30,8 @@ module.exports = defineConfig({
   ],
 
   webServer: {
-    command: 'python3 -m http.server 8080 --directory build/wasm',
-    url: 'http://localhost:8080',
+    command: 'python3 -m http.server 8081 --directory build/wasm',
+    url: 'http://localhost:8081',
     // In local dev you can leave `mise run wasm` running and Playwright will
     // reuse it.  In CI a fresh server is started per run.
     reuseExistingServer: !process.env.CI,
