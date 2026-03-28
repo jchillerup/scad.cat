@@ -83,6 +83,7 @@ struct AppState {
     EvalStatus  eval_status   = EvalStatus::Idle;
     std::string eval_error;
     double      scad_last_edit = -1.0;  // ImGui time of last keystroke, -1 = idle
+    std::string paste_pending;          // deferred paste: inject once Ctrl is released
     bool        show_catalonia = false;
     Language    language          = Language::English;
     std::vector<uint8_t> current_stl;
@@ -117,10 +118,17 @@ static void MainLoopStep()
 #ifdef __EMSCRIPTEN__
     // Inject any clipboard paste text that arrived via the JS paste event.
     {
+        // Buffer incoming paste (arrives while Ctrl is still held).
         char* paste_text = js_take_pending_paste();
         if (paste_text) {
-            ImGui::GetIO().AddInputCharactersUTF8(paste_text);
+            g_app.paste_pending = paste_text;
             free(paste_text);
+        }
+        // Inject once Ctrl is released — ImGui ignores InputQueueCharacters while
+        // any Ctrl modifier is held (it assumes Ctrl+key = shortcut, not text input).
+        if (!g_app.paste_pending.empty() && !ImGui::GetIO().KeyCtrl) {
+            ImGui::GetIO().AddInputCharactersUTF8(g_app.paste_pending.c_str());
+            g_app.paste_pending.clear();
         }
     }
 #endif
