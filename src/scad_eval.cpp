@@ -114,7 +114,7 @@ EvalStatus scad_eval_sync(const char* source,
       if (!f) { error_msg = "Error: cannot write " + tmp_scad; return EvalStatus::Error; }
       f << source; }
 
-    std::string cmd = "openscad --export-format binstl -o " + tmp_stl + " " + tmp_scad + " 2>&1";
+    std::string cmd = "openscad --enable=manifold --export-format binstl -o " + tmp_stl + " " + tmp_scad + " 2>&1";
     if (std::system(cmd.c_str()) != 0) {
         error_msg = "Compilation failed (see terminal)";
         return EvalStatus::Error;
