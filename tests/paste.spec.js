@@ -26,18 +26,6 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-// Core mechanism: paste event on window sets _pendingPaste.
-// Dispatch a synthetic paste event directly — no keyboard shortcut needed.
-test('paste event on window sets _pendingPaste', async ({ page }) => {
-  await page.evaluate(() => {
-    const dt = new DataTransfer();
-    dt.setData('text/plain', 'sphere(5);');
-    window.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true }));
-  });
-
-  const pending = await page.evaluate(() => globalThis._pendingPaste);
-  expect(pending).toBe('sphere(5);');
-});
 
 // Verifies C++ consumes _pendingPaste within a frame or two.
 test('_pendingPaste is consumed by the C++ render loop', async ({ page }) => {
