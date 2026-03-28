@@ -17,6 +17,6 @@ description = "Build (if needed) and serve the WASM app on http://localhost:8080
 run = """
 cmake --preset wasm
 cmake --build build/wasm
-echo "Serving at http://localhost:8080/parametrix.html"
+echo "Serving at http://localhost:8080/"
 python3 -m http.server 8080 --directory build/wasm
 """

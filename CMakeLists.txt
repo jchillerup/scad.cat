@@ -45,6 +45,7 @@ target_include_directories(parametrix PRIVATE
 # ---------------------------------------------------------------------------
 if(EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
+    set_target_properties(parametrix PROPERTIES OUTPUT_NAME "index")
     target_compile_options(parametrix PRIVATE -sUSE_SDL=2)
     target_link_options(parametrix PRIVATE
         -sUSE_SDL=2
