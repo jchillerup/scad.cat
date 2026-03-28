@@ -1,0 +1,79 @@
+# Catalan translation — scad.cat
+# Copyright (C) 2026 scad.cat
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ca\n"
+
+# ---- Menu bar ----
+msgid "Preferences"
+msgstr "Preferències"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "English"
+msgstr "Anglès"
+
+msgid "Catalan"
+msgstr "Català"
+
+msgid "About"
+msgstr "Sobre"
+
+msgid "Information about Catalonia"
+msgstr "Informació sobre Catalunya"
+
+# ---- Windows ----
+msgid "SCAD Source"
+msgstr "Font SCAD"
+
+msgid "3D Viewport"
+msgstr "Visualitzador 3D"
+
+msgid "Info"
+msgstr "Info"
+
+# ---- SCAD editor ----
+msgid "Compile"
+msgstr "Compila"
+
+msgid "Compiling..."
+msgstr "Compilant..."
+
+msgid "OK"
+msgstr "D'acord"
+
+msgid "Compilation failed (see terminal)"
+msgstr "Error de compilació (vegeu el terminal)"
+
+msgid "Compilation failed"
+msgstr "Error de compilació"
+
+# ---- Catalonia info window ----
+msgid "Catalonia (Catalunya) is an autonomous community in northeastern Spain, bordered by France and Andorra to the north, the Mediterranean Sea to the east, and the regions of Aragon and Valencia to the west and south."
+msgstr "Catalunya és una comunitat autònoma situada al nord-est d'Espanya, que limita amb França i Andorra al nord, el mar Mediterrani a l'est, i les regions d'Aragó i el País Valencià a l'oest i al sud."
+
+msgid "BARCELONA"
+msgstr "BARCELONA"
+
+msgid "The capital is a world-class city famed for Antoni Gaudi's extraordinary architecture: the still-unfinished Sagrada Familia basilica, the undulating Casa Batllo and Casa Mila (La Pedrera), and the fairy-tale Park Guell. The Gothic Quarter, Barceloneta beach, and the boulevard of La Rambla draw millions of visitors every year."
+msgstr "La capital és una ciutat de renom mundial, famosa per l'arquitectura extraordinària d'Antoni Gaudí: la Sagrada Família —encara en construcció—, la sinuosa Casa Batlló i la Casa Milà (La Pedrera), i el fantàstic Park Güell. El Barri Gòtic, la platja de la Barceloneta i el passeig de La Rambla atrauen milions de visitants cada any."
+
+msgid "NATURE"
+msgstr "NATURA"
+
+msgid "Beyond the city you will find the volcanic landscape of La Garrotxa, the jagged peaks of Montserrat with its revered Black Madonna, the wild Costa Brava coves, the Pyrenean valleys of the Vall d'Aran, and the Ebro Delta wetlands — a paradise for birdwatchers."
+msgstr "Més enllà de la ciutat, trobareu el paisatge volcànic de La Garrotxa, els cims dentats de Montserrat amb la seva venerada Mare de Déu (la Moreneta), les cales salvatges de la Costa Brava, les valls pirinenques de la Vall d'Aran i el delta de l'Ebre —un paradís per als amants dels ocells."
+
+msgid "CULTURE & FOOD"
+msgstr "CULTURA I GASTRONOMIA"
+
+msgid "Catalan is a co-official language with Spanish. The region has its own distinct culture, traditions (castellers, sardana dancing, human towers), and one of the great cuisines of Europe — from pa amb tomaquet (bread rubbed with tomato) to world-renowned restaurants like El Celler de Can Roca in Girona."
+msgstr "El català és una llengua cooficial amb el castellà. La regió té una cultura pròpia i diferenciada, amb tradicions com els castellers, la sardana i els gegants. La cuina catalana és una de les grans cuines d'Europa, des del pa amb tomàquet fins a restaurants de renom mundial com El Celler de Can Roca, a Girona."
+
+msgid "HISTORY"
+msgstr "HISTÒRIA"
+
+msgid "Catalonia has a rich history stretching back to Roman Tarraco (modern Tarragona), through the medieval Crown of Aragon, to the modern era. The region has a strong sense of its own national identity and a lively contemporary cultural scene."
+msgstr "Catalunya té una història rica que s'estén des de la Tarraco romana (l'actual Tarragona), passant per la medieval Corona d'Aragó, fins a l'època moderna. La regió té un fort sentiment d'identitat nacional i una escena cultural contemporània molt activa."

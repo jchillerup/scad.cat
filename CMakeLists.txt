@@ -63,7 +63,10 @@ if(EMSCRIPTEN)
     set_property(TARGET parametrix APPEND PROPERTY LINK_DEPENDS
         ${CMAKE_SOURCE_DIR}/web/shell.html
     )
-    target_compile_definitions(parametrix PRIVATE MODELS_PATH="/models/")
+    target_compile_definitions(parametrix PRIVATE
+        MODELS_PATH="/models/"
+        I18N_PATH="/i18n/"
+    )
 
     # Embed the example model files into the virtual FS.
     # SHELL: prefix prevents CMake from deduplicating repeated --embed-file flags.
@@ -73,6 +76,13 @@ if(EMSCRIPTEN)
                 "SHELL:--embed-file ${CMAKE_SOURCE_DIR}/models/${model_file}@/models/${model_file}"
             )
         endif()
+    endforeach()
+
+    # Embed translation files.
+    foreach(lang_file en.po cat.po)
+        target_link_options(parametrix PRIVATE
+            "SHELL:--embed-file ${CMAKE_SOURCE_DIR}/i18n/${lang_file}@/i18n/${lang_file}"
+        )
     endforeach()
 
     # ---------------------------------------------------------------------------
@@ -122,6 +132,7 @@ else()
     target_compile_definitions(parametrix PRIVATE
         GL_GLEXT_PROTOTYPES
         MODELS_PATH="${CMAKE_SOURCE_DIR}/models/"
+        I18N_PATH="${CMAKE_SOURCE_DIR}/i18n/"
     )
 endif()
 

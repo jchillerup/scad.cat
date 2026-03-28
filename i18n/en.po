@@ -1,0 +1,6 @@
+# English — base language (msgid strings are English, no translations needed)
+# scad.cat
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"

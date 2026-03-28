@@ -1,3 +1,4 @@
+#include "i18n.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
@@ -142,6 +143,7 @@ struct AppState {
     double      scad_last_edit    = -1.0;  // ImGui time of last keystroke, -1 = idle
     bool        scad_eval_pending = false; // WASM: async eval in flight
     bool        show_catalonia    = false;
+    Language    language          = Language::English;
 };
 
 static constexpr double DEBOUNCE_SECS = 0.1;
@@ -183,8 +185,22 @@ static void MainLoopStep()
 
     // ---- Menu bar ----------------------------------------------------------
     if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("About")) {
-            if (ImGui::MenuItem("Information about Catalonia"))
+        if (ImGui::BeginMenu(_("Preferences"))) {
+            if (ImGui::BeginMenu(_("Language"))) {
+                if (ImGui::MenuItem(_("English"), nullptr, g_app.language == Language::English)) {
+                    g_app.language = Language::English;
+                    i18n::set_language(Language::English, I18N_PATH);
+                }
+                if (ImGui::MenuItem(_("Catalan"), nullptr, g_app.language == Language::Catalan)) {
+                    g_app.language = Language::Catalan;
+                    i18n::set_language(Language::Catalan, I18N_PATH);
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu(_("About"))) {
+            if (ImGui::MenuItem(_("Information about Catalonia")))
                 g_app.show_catalonia = true;
             ImGui::EndMenu();
         }
@@ -194,46 +210,40 @@ static void MainLoopStep()
     // ---- Catalonia info window ---------------------------------------------
     if (g_app.show_catalonia) {
         ImGui::SetNextWindowSize({520, 400}, ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Information about Catalonia", &g_app.show_catalonia)) {
-            ImGui::TextWrapped(
-                "Catalonia (Catalunya) is an autonomous community in northeastern "
-                "Spain, bordered by France and Andorra to the north, the "
-                "Mediterranean Sea to the east, and the regions of Aragon and "
-                "Valencia to the west and south.\n\n"
-
-                "BARCELONA\n"
-                "The capital is a world-class city famed for Antoni Gaudi's "
-                "extraordinary architecture: the still-unfinished Sagrada Familia "
-                "basilica, the undulating Casa Batllo and Casa Mila (La Pedrera), "
-                "and the fairy-tale Park Guell. The Gothic Quarter, Barceloneta "
-                "beach, and the boulevard of La Rambla draw millions of visitors "
-                "every year.\n\n"
-
-                "NATURE\n"
-                "Beyond the city you will find the volcanic landscape of La Garrotxa, "
-                "the jagged peaks of Montserrat with its revered Black Madonna, the "
-                "wild Costa Brava coves, the Pyrenean valleys of the Vall d'Aran, and "
-                "the Ebro Delta wetlands — a paradise for birdwatchers.\n\n"
-
-                "CULTURE & FOOD\n"
-                "Catalan is a co-official language with Spanish. The region has its "
-                "own distinct culture, traditions (castellers, sardana dancing, human "
-                "towers), and one of the great cuisines of Europe — from pa amb "
-                "tomaquet (bread rubbed with tomato) to world-renowned restaurants "
-                "like El Celler de Can Roca in Girona.\n\n"
-
-                "HISTORY\n"
-                "Catalonia has a rich history stretching back to Roman Tarraco "
-                "(modern Tarragona), through the medieval Crown of Aragon, to the "
-                "modern era. The region has a strong sense of its own national "
-                "identity and a lively contemporary cultural scene."
-            );
+        if (ImGui::Begin(_("Information about Catalonia"), &g_app.show_catalonia)) {
+            ImGui::TextWrapped("%s", _("Catalonia (Catalunya) is an autonomous community in northeastern Spain, "
+                "bordered by France and Andorra to the north, the Mediterranean Sea to the east, "
+                "and the regions of Aragon and Valencia to the west and south."));
+            ImGui::Spacing();
+            ImGui::Text("%s", _("BARCELONA"));
+            ImGui::TextWrapped("%s", _("The capital is a world-class city famed for Antoni Gaudi's extraordinary "
+                "architecture: the still-unfinished Sagrada Familia basilica, the undulating "
+                "Casa Batllo and Casa Mila (La Pedrera), and the fairy-tale Park Guell. The Gothic "
+                "Quarter, Barceloneta beach, and the boulevard of La Rambla draw millions of visitors "
+                "every year."));
+            ImGui::Spacing();
+            ImGui::Text("%s", _("NATURE"));
+            ImGui::TextWrapped("%s", _("Beyond the city you will find the volcanic landscape of La Garrotxa, "
+                "the jagged peaks of Montserrat with its revered Black Madonna, the wild Costa Brava "
+                "coves, the Pyrenean valleys of the Vall d'Aran, and the Ebro Delta wetlands "
+                "— a paradise for birdwatchers."));
+            ImGui::Spacing();
+            ImGui::Text("%s", _("CULTURE & FOOD"));
+            ImGui::TextWrapped("%s", _("Catalan is a co-official language with Spanish. The region has its own "
+                "distinct culture, traditions (castellers, sardana dancing, human towers), and one of "
+                "the great cuisines of Europe — from pa amb tomaquet (bread rubbed with tomato) to "
+                "world-renowned restaurants like El Celler de Can Roca in Girona."));
+            ImGui::Spacing();
+            ImGui::Text("%s", _("HISTORY"));
+            ImGui::TextWrapped("%s", _("Catalonia has a rich history stretching back to Roman Tarraco (modern "
+                "Tarragona), through the medieval Crown of Aragon, to the modern era. The region has "
+                "a strong sense of its own national identity and a lively contemporary cultural scene."));
         }
         ImGui::End();
     }
 
     // ---- Info window -------------------------------------------------------
-    ImGui::Begin("Info");
+    ImGui::Begin(_("Info"));
     {
         ImGuiIO& io = ImGui::GetIO();
         ImGui::Text("Viewport: %.0f x %.0f", io.DisplaySize.x, io.DisplaySize.y);
@@ -286,7 +296,7 @@ static void MainLoopStep()
 
     // ---- SCAD source editor ------------------------------------------------
     ImGui::SetNextWindowSize({480, 400}, ImGuiCond_FirstUseEver);
-    ImGui::Begin("SCAD Source");
+    ImGui::Begin(_("SCAD Source"));
     {
         ImGui::InputTextMultiline(
             "##scad", g_app.scad_buf, SCAD_BUF_SIZE,
@@ -296,7 +306,7 @@ static void MainLoopStep()
             g_app.scad_last_edit = ImGui::GetTime();
 
         if (!can_evaluate) ImGui::BeginDisabled();
-        if (ImGui::Button("Compile")) {
+        if (ImGui::Button(_("Compile"))) {
             g_app.scad_last_edit = -1.0; // cancel pending debounce
             do_evaluate();
         }
@@ -308,9 +318,9 @@ static void MainLoopStep()
         else if (g_app.scad_status.empty())
             ImGui::TextDisabled("—");
         else if (g_app.scad_status == "OK")
-            ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "OK");
+            ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "%s", _("OK"));
         else
-            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", g_app.scad_status.c_str());
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", _(g_app.scad_status.c_str()));
     }
     ImGui::End();
 
@@ -320,7 +330,7 @@ static void MainLoopStep()
         ImGui::SetNextWindowPos({0, 0});
         ImGui::SetNextWindowSize(io2.DisplaySize);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-        ImGui::Begin("3D Viewport", nullptr,
+        ImGui::Begin(_("3D Viewport"), nullptr,
             ImGuiWindowFlags_NoDecoration |
             ImGuiWindowFlags_NoMove       |
             ImGuiWindowFlags_NoBringToFrontOnFocus |
