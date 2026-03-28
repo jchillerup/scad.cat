@@ -376,8 +376,7 @@ static void MainLoopStep()
             ImGuiWindowFlags_NoFocusOnAppearing|
             ImGuiWindowFlags_NoNav             |
             ImGuiWindowFlags_NoMove            |
-            ImGuiWindowFlags_AlwaysAutoResize  |
-            ImGuiWindowFlags_NoBringToFrontOnFocus);
+            ImGuiWindowFlags_AlwaysAutoResize);
 
         ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.20f, 0.50f, 0.90f, 0.90f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.60f, 1.00f, 1.00f));
