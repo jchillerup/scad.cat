@@ -1,3 +1,6 @@
 build/
 web/openscad-wasm-dist/
+node_modules/
+test-results/
+playwright-report/
 *~

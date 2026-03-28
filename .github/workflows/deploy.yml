@@ -28,6 +28,14 @@ jobs:
       - name: Build (WASM)
         run: mise exec -- cmake --build build/wasm
 
+      - name: Install Playwright and Chromium
+        run: mise exec -- npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: mise exec -- npx playwright test --forbid-only
+        env:
+          CI: true
+
       - name: Deploy to Cloudflare Pages
         if: github.event_name == 'push'
         uses: cloudflare/wrangler-action@v3

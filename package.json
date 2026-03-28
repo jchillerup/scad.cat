@@ -1,0 +1,7 @@
+{
+  "name": "parametrix-tests",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "latest"
+  }
+}

@@ -3,6 +3,7 @@ cmake = "latest"
 ninja = "latest"
 emsdk = "latest"
 watchexec = "latest"
+node = "22"
 
 [tasks.desktop]
 description = "Build (if needed) and run the desktop app"
@@ -20,3 +21,18 @@ cmake --build build/wasm
 echo "Serving at http://localhost:8080/"
 python3 -m http.server 8080 --directory build/wasm
 """
+
+[tasks.test-install]
+description = "Install Playwright and its Chromium browser (run once after cloning)"
+run = """
+npm install
+npx playwright install chromium
+"""
+
+[tasks.test]
+description = "Run Playwright e2e tests (requires a WASM build in build/wasm)"
+run = "npx playwright test"
+
+[tasks.test-ui]
+description = "Open Playwright's interactive test UI"
+run = "npx playwright test --ui"
