@@ -37,6 +37,15 @@ run = "npx playwright test"
 description = "Open Playwright's interactive test UI"
 run = "npx playwright test --ui"
 
+[tasks.browse]
+description = "Open the WASM app in a Playwright-managed Chromium browser for manual testing"
+run = """
+python3 -m http.server 8081 --directory build/wasm &
+SERVER_PID=$!
+trap "kill $SERVER_PID" EXIT
+npx playwright open --browser chromium http://localhost:8081
+"""
+
 [tasks.test-record]
 description = "Open Playwright codegen to record a new test (starts HTTP server automatically)"
 run = """
