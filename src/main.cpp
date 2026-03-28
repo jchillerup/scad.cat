@@ -39,14 +39,8 @@ EM_JS(char*, js_take_pending_paste, (), {
 // Clipboard: write text to the browser clipboard (best-effort async).
 EM_JS(void, js_set_clipboard, (const char* str), {
     const text = UTF8ToString(str);
-    console.log('[copy] js_set_clipboard called, length', text.length);
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text)
-            .then(function()  { console.log('[copy] writeText succeeded'); })
-            .catch(function(e){ console.warn('[copy] writeText failed:', e); });
-    } else {
-        console.warn('[copy] navigator.clipboard not available');
-    }
+    if (navigator.clipboard && navigator.clipboard.writeText)
+        navigator.clipboard.writeText(text).catch(function(){});
 });
 
 // Expose the current SCAD source buffer to JS for testing.
@@ -89,7 +83,9 @@ struct AppState {
     EvalStatus  eval_status   = EvalStatus::Idle;
     std::string eval_error;
     double      scad_last_edit = -1.0;  // ImGui time of last keystroke, -1 = idle
-    std::string paste_pending;          // deferred paste: inject once Ctrl is released
+    std::string paste_pending;           // deferred paste: inject once Ctrl is released
+    std::string imgui_clipboard;         // mirrors ImGui's internal clipboard
+    std::string imgui_clipboard_last;    // last value pushed to system clipboard
     bool        show_catalonia = false;
     Language    language          = Language::English;
     std::vector<uint8_t> current_stl;
@@ -136,12 +132,12 @@ static void MainLoopStep()
             ImGui::GetIO().AddInputCharactersUTF8(g_app.paste_pending.c_str());
             g_app.paste_pending.clear();
         }
-        // ImGui's Shortcut() routing silently fails for InputText copy (Ctrl+C) in
-        // the SDL2/Emscripten backend. Detect it directly and copy the SCAD buffer.
-        if (ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl
-                && !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt
-                && ImGui::GetIO().WantTextInput)
-            js_set_clipboard(g_app.scad_buf);
+        // Poll: if ImGui's internal clipboard changed this frame (via Ctrl+C, Ctrl+X,
+        // or any other copy action), push the new content to the system clipboard.
+        if (g_app.imgui_clipboard != g_app.imgui_clipboard_last) {
+            js_set_clipboard(g_app.imgui_clipboard.c_str());
+            g_app.imgui_clipboard_last = g_app.imgui_clipboard;
+        }
     }
 #endif
 
@@ -394,17 +390,23 @@ int main(int, char**)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
-#ifdef __EMSCRIPTEN__
-    // Wire up clipboard functions for WASM (SDL2 clipboard API doesn't work in browsers).
-    // ImGui 1.91.1+ moved clipboard hooks to PlatformIO (old ImGuiIO fields are no-ops).
-    ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) -> const char* { return ""; };
-    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
-        js_set_clipboard(text);
-    };
-#endif
-
     ImGui_ImplSDL2_InitForOpenGL(g_app.window, g_app.gl_context);
     ImGui_ImplOpenGL3_Init(glsl_version);
+
+#ifdef __EMSCRIPTEN__
+    // Override AFTER ImGui_ImplSDL2_InitForOpenGL — the SDL2 backend overwrites
+    // PlatformIO clipboard functions with SDL_SetClipboardText / SDL_GetClipboardText,
+    // which do nothing in a browser. We replace them with our JS bridge.
+    // Platform_GetClipboardTextFn returns our stored copy so ImGui-internal paste works.
+    // Platform_SetClipboardTextFn stores the text; polling detects the change and
+    // writes to the system clipboard (see per-frame code).
+    ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) -> const char* {
+        return g_app.imgui_clipboard.c_str();
+    };
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
+        g_app.imgui_clipboard = text;
+    };
+#endif
 
     g_app.viewer.Init(glsl_version);
 
