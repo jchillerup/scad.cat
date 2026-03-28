@@ -29,7 +29,9 @@ jobs:
         run: mise exec -- cmake --build build/wasm
 
       - name: Install Playwright and Chromium
-        run: mise exec -- npx playwright install --with-deps chromium
+        run: |
+          mise exec -- npm install
+          mise exec -- npx playwright install --with-deps chromium
 
       - name: Run Playwright tests
         run: mise exec -- npx playwright test --forbid-only
