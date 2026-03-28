@@ -1,6 +1,6 @@
 # Copy/Paste in the ImGui/Emscripten/SDL2 Browser App
 
-## The Problem (three layers)
+## Paste (system → ImGui) — Working
 
 ### Layer 1 — SDL eats the paste shortcut
 
@@ -31,8 +31,59 @@ event fires (it arrives asynchronously after the keydown), injecting immediately
 puts characters into a queue that ImGui silently discards.
 
 **Fix:** buffer the paste text in `AppState::paste_pending` and inject it in the
-first subsequent frame where `!io.KeyCtrl`. This causes the small but acceptable
+first subsequent frame where `!io.KeyCtrl`. This causes a small but acceptable
 delay after releasing Ctrl.
+
+---
+
+## Copy (ImGui → system) — Partially Working
+
+### What should work but doesn't: ImGui's built-in copy routing
+
+ImGui's `InputTextEx` handles Ctrl+C via `Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, 0, id)`
+(imgui_widgets.cpp line ~5090). This goes through ImGui's shortcut routing system
+(`SetShortcutRouting` / `CalcRoutingScore`). When it succeeds it calls
+`ImGui::SetClipboardText()` → `PlatformIO.Platform_SetClipboardTextFn`.
+
+**Confirmed working:**
+- ImGui sees Ctrl+C (`IsKeyPressed(ImGuiKey_C) && io.KeyCtrl` = true)
+- `io.KeyMods == ImGuiMod_Ctrl` matches exactly (no spurious modifiers)
+- `io.WantTextInput = 1` (an InputText is active)
+- `PlatformIO.Platform_SetClipboardTextFn` is set (PlatformFn=1)
+
+**Confirmed not working:** `Platform_SetClipboardTextFn` is never called.
+
+**Root cause (suspected, not fully traced):** ImGui's `Shortcut()` routing system
+has a one-frame delay — routes are submitted for the next frame and tested against
+the current frame's `RoutingCurr`. Additionally, the `is_copy` condition requires
+`state->HasSelection()` for multiline InputText. One or both of these fail silently
+in the SDL2/Emscripten context. The exact failure point was not isolated because the
+internal routing state (`RoutingCurr`) is not accessible without modifying ImGui
+source.
+
+**Note on clipboard API:** ImGui 1.91.1+ moved clipboard hooks from `ImGuiIO` to
+`ImGuiPlatformIO`. The old `io.SetClipboardTextFn` / `io.GetClipboardTextFn` are
+no-ops in newer versions. Use `ImGui::GetPlatformIO().Platform_SetClipboardTextFn`
+and `Platform_GetClipboardTextFn` instead.
+
+### Workaround: detect copy with `IsKeyPressed`, copy full buffer
+
+Since `IsKeyPressed(ImGuiKey_C)` works even though `Shortcut()` doesn't, we detect
+Ctrl+C ourselves and copy the entire SCAD buffer. Selection-based copy is not
+implemented (the selection state is inside ImGui's internal `ImGuiInputTextState`
+and is not exposed via the public API).
+
+```cpp
+// ImGui's Shortcut() routing silently fails for InputText copy (Ctrl+C) in
+// the SDL2/Emscripten backend. Detect it directly and copy the SCAD buffer.
+if (ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl
+        && !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt
+        && ImGui::GetIO().WantTextInput)
+    js_set_clipboard(g_app.scad_buf);
+```
+
+`js_set_clipboard` calls `navigator.clipboard.writeText()` (async, best-effort).
+On localhost and HTTPS this succeeds silently. On HTTP it may fail silently.
 
 ---
 
@@ -71,7 +122,7 @@ window.addEventListener('keydown', function(e) {
 ### `src/main.cpp` (per-frame, after `ImGui::NewFrame()`)
 
 ```cpp
-// Buffer incoming paste (arrives while Ctrl is still held).
+// Paste: buffer incoming text (arrives while Ctrl is still held).
 char* paste_text = js_take_pending_paste();
 if (paste_text) {
     g_app.paste_pending = paste_text;
@@ -83,23 +134,32 @@ if (!g_app.paste_pending.empty() && !ImGui::GetIO().KeyCtrl) {
     ImGui::GetIO().AddInputCharactersUTF8(g_app.paste_pending.c_str());
     g_app.paste_pending.clear();
 }
+
+// Copy: ImGui's Shortcut() routing fails silently; detect with IsKeyPressed instead.
+if (ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl
+        && !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt
+        && ImGui::GetIO().WantTextInput)
+    js_set_clipboard(g_app.scad_buf);
 ```
 
 ### `src/main.cpp` (ImGui init)
 
 ```cpp
-// SDL2 clipboard API doesn't work in browsers; wire up JS clipboard instead.
-io.GetClipboardTextFn = [](void*) -> const char* { return ""; };
-io.SetClipboardTextFn = [](void*, const char* text) { js_set_clipboard(text); };
+// ImGui 1.91.1+ uses PlatformIO for clipboard (old ImGuiIO fields are no-ops).
+ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) -> const char* { return ""; };
+ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
+    js_set_clipboard(text);
+};
 ```
-
-`js_set_clipboard` calls `navigator.clipboard.writeText()` (async, best-effort).
 
 ---
 
 ## References
 
-- https://github.com/pthom/hello_imgui/issues/3 — the thread that identified the
-  `window paste` + `stopImmediatePropagation` pattern
-- `imgui_widgets.cpp` `InputTextEx()` — the `!is_ctrl_down` guard on character input
+- https://github.com/pthom/hello_imgui/issues/3 — identified the `window paste` +
+  `stopImmediatePropagation` pattern
+- `imgui_widgets.cpp` `InputTextEx()` — the `!is_ctrl_down` guard on character input;
+  the `Shortcut()` routing system for copy/cut
+- `imgui.cpp` `SetShortcutRouting()` — one-frame routing delay and `RoutingCurr` test
+- ImGui changelog 1.91.1 — clipboard functions moved from `ImGuiIO` to `ImGuiPlatformIO`
 - SDL2 Emscripten backend — calls `preventDefault()` on all canvas keydown events

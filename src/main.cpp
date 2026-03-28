@@ -39,8 +39,14 @@ EM_JS(char*, js_take_pending_paste, (), {
 // Clipboard: write text to the browser clipboard (best-effort async).
 EM_JS(void, js_set_clipboard, (const char* str), {
     const text = UTF8ToString(str);
-    if (navigator.clipboard && navigator.clipboard.writeText)
-        navigator.clipboard.writeText(text).catch(function(){});
+    console.log('[copy] js_set_clipboard called, length', text.length);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+            .then(function()  { console.log('[copy] writeText succeeded'); })
+            .catch(function(e){ console.warn('[copy] writeText failed:', e); });
+    } else {
+        console.warn('[copy] navigator.clipboard not available');
+    }
 });
 
 // Expose the current SCAD source buffer to JS for testing.
@@ -130,6 +136,12 @@ static void MainLoopStep()
             ImGui::GetIO().AddInputCharactersUTF8(g_app.paste_pending.c_str());
             g_app.paste_pending.clear();
         }
+        // ImGui's Shortcut() routing silently fails for InputText copy (Ctrl+C) in
+        // the SDL2/Emscripten backend. Detect it directly and copy the SCAD buffer.
+        if (ImGui::IsKeyPressed(ImGuiKey_C) && ImGui::GetIO().KeyCtrl
+                && !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt
+                && ImGui::GetIO().WantTextInput)
+            js_set_clipboard(g_app.scad_buf);
     }
 #endif
 
@@ -384,8 +396,11 @@ int main(int, char**)
 
 #ifdef __EMSCRIPTEN__
     // Wire up clipboard functions for WASM (SDL2 clipboard API doesn't work in browsers).
-    io.GetClipboardTextFn = [](void*) -> const char* { return ""; };
-    io.SetClipboardTextFn = [](void*, const char* text) { js_set_clipboard(text); };
+    // ImGui 1.91.1+ moved clipboard hooks to PlatformIO (old ImGuiIO fields are no-ops).
+    ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) -> const char* { return ""; };
+    ImGui::GetPlatformIO().Platform_SetClipboardTextFn = [](ImGuiContext*, const char* text) {
+        js_set_clipboard(text);
+    };
 #endif
 
     ImGui_ImplSDL2_InitForOpenGL(g_app.window, g_app.gl_context);
