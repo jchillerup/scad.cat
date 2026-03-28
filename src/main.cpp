@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #  include <emscripten.h>
@@ -76,6 +77,20 @@ EM_JS(void, js_set_clipboard, (const char* str), {
         navigator.clipboard.writeText(text).catch(function(){});
 });
 
+// Trigger a browser file download of raw bytes.
+EM_JS(void, js_download_bytes, (const uint8_t* data, int len, const char* filename), {
+    const bytes = HEAPU8.slice(data, data + len);
+    const blob  = new Blob([bytes], { type: 'application/octet-stream' });
+    const url   = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href     = url;
+    a.download = UTF8ToString(filename);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+});
+
 // Poll: 0 = still running, 1 = done OK, -1 = error
 EM_JS(int, js_scad_eval_status, (), {
     if (globalThis._scadEvalStatus === 'running') return 0;
@@ -102,7 +117,8 @@ EM_JS(int, js_scad_get_result, (uint8_t** out_ptr), {
 // Returns true on success.
 static bool desktop_evaluate_scad(const char* scad_source,
                                    MeshViewer& viewer,
-                                   std::string& status)
+                                   std::string& status,
+                                   std::vector<uint8_t>& out_stl)
 {
     const std::string tmp_scad = "/tmp/parametrix_eval.scad";
     const std::string tmp_stl  = "/tmp/parametrix_eval.stl";
@@ -119,6 +135,10 @@ static bool desktop_evaluate_scad(const char* scad_source,
         status = "Error: could not load output STL";
         return false;
     }
+
+    { std::ifstream f(tmp_stl, std::ios::binary);
+      out_stl.assign(std::istreambuf_iterator<char>(f), {}); }
+
     status = "OK";
     return true;
 }
@@ -144,6 +164,7 @@ struct AppState {
     bool        scad_eval_pending = false; // WASM: async eval in flight
     bool        show_catalonia    = false;
     Language    language          = Language::English;
+    std::vector<uint8_t> current_stl;
 };
 
 static constexpr double DEBOUNCE_SECS = 0.1;
@@ -259,6 +280,7 @@ static void MainLoopStep()
             uint8_t* ptr = nullptr;
             int      len = js_scad_get_result(&ptr);
             if (len > 0 && ptr) {
+                g_app.current_stl.assign(ptr, ptr + len);
                 g_app.viewer.LoadSTLFromMemory(ptr, (size_t)len);
                 free(ptr);
                 g_app.scad_status = "OK";
@@ -281,7 +303,7 @@ static void MainLoopStep()
         g_app.scad_status       = "Compiling...";
         g_app.scad_eval_pending = true;
 #else
-        desktop_evaluate_scad(g_app.scad_buf, g_app.viewer, g_app.scad_status);
+        desktop_evaluate_scad(g_app.scad_buf, g_app.viewer, g_app.scad_status, g_app.current_stl);
 #endif
     };
 
@@ -337,6 +359,45 @@ static void MainLoopStep()
             ImGuiWindowFlags_NoNav);
         ImGui::PopStyleVar();
         g_app.viewer.Draw();
+        ImGui::End();
+    }
+
+    // ---- Download STL button (floating, lower-right) -----------------------
+    if (!g_app.current_stl.empty()) {
+        const float pad = 16.0f;
+        ImGuiIO& fio = ImGui::GetIO();
+        ImGui::SetNextWindowPos(
+            {fio.DisplaySize.x - pad, fio.DisplaySize.y - pad},
+            ImGuiCond_Always, {1.0f, 1.0f});
+        ImGui::SetNextWindowBgAlpha(0.0f);
+        ImGui::Begin("##dl_btn", nullptr,
+            ImGuiWindowFlags_NoDecoration      |
+            ImGuiWindowFlags_NoSavedSettings   |
+            ImGuiWindowFlags_NoFocusOnAppearing|
+            ImGuiWindowFlags_NoNav             |
+            ImGuiWindowFlags_NoMove            |
+            ImGuiWindowFlags_AlwaysAutoResize  |
+            ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.20f, 0.50f, 0.90f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.30f, 0.60f, 1.00f, 1.00f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.15f, 0.40f, 0.75f, 1.00f));
+
+        if (ImGui::Button(_("Download STL"))) {
+#ifdef __EMSCRIPTEN__
+            js_download_bytes(g_app.current_stl.data(),
+                              (int)g_app.current_stl.size(),
+                              "model.stl");
+#else
+            const std::string out = "model.stl";
+            std::ofstream f(out, std::ios::binary);
+            f.write(reinterpret_cast<const char*>(g_app.current_stl.data()),
+                    (std::streamsize)g_app.current_stl.size());
+            fprintf(stdout, "STL saved to %s\n", out.c_str());
+#endif
+        }
+
+        ImGui::PopStyleColor(3);
         ImGui::End();
     }
 

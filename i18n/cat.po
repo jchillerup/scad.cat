@@ -34,6 +34,10 @@ msgstr "Visualitzador 3D"
 msgid "Info"
 msgstr "Info"
 
+# ---- Download button ----
+msgid "Download STL"
+msgstr "Descarrega l'STL"
+
 # ---- SCAD editor ----
 msgid "Compile"
 msgstr "Compila"
