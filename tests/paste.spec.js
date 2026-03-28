@@ -9,17 +9,13 @@ const { test, expect } = require('@playwright/test');
 // trigger it; the textarea approach does not).
 //
 // Mechanism (shell.html):
-//   1. Ctrl+V keydown on #canvas  → focus moved to the hidden <textarea>
-//   2. Browser fires 'paste' on textarea → listener stores text in
+//   1. Ctrl+V keydown on #canvas
+//      → stopImmediatePropagation() (prevents SDL from calling preventDefault)
+//      → focus moved to the hidden <textarea>
+//   2. Browser fires 'paste' on textarea (it is now the focused element and
+//      the paste action was not cancelled) → listener stores text in
 //      globalThis._pendingPaste and restores #canvas focus
 //   3. C++ calls js_take_pending_paste() every frame → clears _pendingPaste
-//
-// Note on headless Chromium and Ctrl+V:
-//   page.keyboard.press('Control+v') injects a synthetic keydown but does NOT
-//   cause the browser to fire a real 'paste' event from the OS clipboard in
-//   headless mode.  The reliable path is to dispatch a ClipboardEvent directly
-//   on the textarea, which exercises exactly the same event handler.
-//   The keyboard test is skipped in CI but kept for local --headed runs.
 // ---------------------------------------------------------------------------
 
 test.beforeEach(async ({ page }) => {
@@ -69,9 +65,37 @@ test('non-shortcut keydown events propagate past the capture listener', async ({
   expect(seen).toContain('a');
 });
 
-// Integration test — requires a headed browser and real OS clipboard.
+// Ctrl+V fires the paste event on the hidden textarea.
+// In headless Chromium, e.clipboardData is always empty (even if the clipboard
+// was seeded with navigator.clipboard.writeText), so we can't assert on
+// _pendingPaste here.  Instead we verify that the paste event itself fires on
+// _pasteTA, which confirms:
+//   1. Our capture handler ran (stopImmediatePropagation + _pasteTA.focus())
+//   2. SDL did NOT call preventDefault() on the keydown (it never saw the event)
+//   3. The browser executed the paste action on the now-focused textarea
+test('Ctrl+V on canvas fires the paste event on the hidden textarea', async ({ page }) => {
+  // Register a one-shot listener before we press the key.
+  await page.evaluate(() => {
+    globalThis._pasteFiredOnTA = false;
+    window._pasteTA.addEventListener(
+      'paste',
+      () => { globalThis._pasteFiredOnTA = true; },
+      { once: true },
+    );
+  });
+
+  await page.locator('#canvas').click();
+  await page.keyboard.press('Control+v');
+
+  const fired = await page.evaluate(() => globalThis._pasteFiredOnTA);
+  expect(fired).toBe(true);
+});
+
+// Full end-to-end: Ctrl+V fires the paste event and sets _pendingPaste.
+// Skipped in headless CI because synthetic keyboard events don't trigger
+// the browser's native paste action.
 // Run locally with:  npx playwright test --headed tests/paste.spec.js
-test.skip('Ctrl+V on canvas routes text through hidden textarea (headed only)', async ({ page }) => {
+test.skip('Ctrl+V on canvas sets _pendingPaste via hidden textarea (headed only)', async ({ page }) => {
   await page.evaluate(() => navigator.clipboard.writeText('cube([5, 5, 5]);'));
   await page.locator('#canvas').click();
   await page.keyboard.press('Control+v');

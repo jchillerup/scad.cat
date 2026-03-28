@@ -43,6 +43,13 @@ EM_JS(void, js_set_clipboard, (const char* str), {
         navigator.clipboard.writeText(text).catch(function(){});
 });
 
+// Expose the current SCAD source buffer to JS for testing.
+// Called once per frame; updates globalThis._scadBuf so tests can assert on
+// the actual buffer content without going through the C++ eval pipeline.
+EM_JS(void, js_set_scad_buf, (const char* buf), {
+    globalThis._scadBuf = UTF8ToString(buf);
+});
+
 // Trigger a browser file download of raw bytes.
 EM_JS(void, js_download_bytes, (const uint8_t* data, int len, const char* filename), {
     const bytes = HEAPU8.slice(data, data + len);
@@ -309,6 +316,9 @@ static void MainLoopStep()
                  g_app.clear_color.z, g_app.clear_color.w);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#ifdef __EMSCRIPTEN__
+    js_set_scad_buf(g_app.scad_buf);
+#endif
     SDL_GL_SwapWindow(g_app.window);
 }
 

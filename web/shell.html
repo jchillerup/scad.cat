@@ -118,11 +118,18 @@
         // Clipboard paste: redirect focus to the hidden textarea so the browser
         // fires the paste event there instead of swallowing it on the canvas.
         // No permission prompt — the user's own Ctrl+V is the gesture.
+        //
+        // stopImmediatePropagation() is required here: SDL registers its
+        // keydown listener on the canvas element and calls preventDefault()
+        // on every keydown. If SDL's listener runs before the browser executes
+        // the paste action, it cancels the paste and no 'paste' event fires on
+        // _pasteTA. By stopping propagation in our capture-phase window
+        // listener, SDL never sees Ctrl+V, the paste action is not cancelled,
+        // and the browser fires 'paste' on _pasteTA (the now-focused element).
         if (ctrl && (k === 'v' || k === 'V') && !e.repeat) {
+          e.stopImmediatePropagation();
           _pasteTA.value = '';
           _pasteTA.focus();
-          // (don't stopImmediatePropagation — SDL/ImGui can see Ctrl+V, it just
-          //  pastes "" from GetClipboardTextFn which is harmless)
         }
       }, { capture: true });
     </script>
