@@ -4,6 +4,7 @@ ninja = "latest"
 emsdk = "latest"
 watchexec = "latest"
 node = "22"
+jq = "latest"
 
 [tasks.desktop]
 description = "Build (if needed) and run the desktop app"
