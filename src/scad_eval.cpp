@@ -114,7 +114,14 @@ EvalStatus scad_eval_sync(const char* source,
       if (!f) { error_msg = "Error: cannot write " + tmp_scad; return EvalStatus::Error; }
       f << source; }
 
-    std::string cmd = "openscad --enable=manifold --export-format binstl -o " + tmp_stl + " " + tmp_scad + " 2>&1";
+    // OPENSCAD_CMD is set by CMake (-DOPENSCAD_CMD=...) — defaults to "openscad".
+    // For containerised builds it is set to e.g.
+    //   "podman run --rm -v /tmp:/tmp parametrix-openscad openscad"
+#ifndef OPENSCAD_CMD
+#  define OPENSCAD_CMD "openscad"
+#endif
+    std::string cmd = std::string(OPENSCAD_CMD)
+        + " --export-format binstl -o " + tmp_stl + " " + tmp_scad + " 2>&1";
     if (std::system(cmd.c_str()) != 0) {
         error_msg = "Compilation failed (see terminal)";
         return EvalStatus::Error;

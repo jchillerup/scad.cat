@@ -29,6 +29,9 @@ add_executable(parametrix
     src/main.cpp
     src/scad_eval.cpp
     src/viewer.cpp
+    src/generator.cpp
+    src/generator_ui.cpp
+    src/scad_builder.cpp
     ${IMGUI_SOURCES}
     ${IMGUIZMO_SOURCES}
 )
@@ -38,6 +41,7 @@ target_include_directories(parametrix PRIVATE
     ${IMGUI_DIR}/backends
     ${IMGUIZMO_DIR}
     ${CMAKE_SOURCE_DIR}/external/glm
+    ${CMAKE_SOURCE_DIR}/external/nlohmann_json/single_include
     ${CMAKE_SOURCE_DIR}/src
 )
 
@@ -67,6 +71,12 @@ if(EMSCRIPTEN)
     target_compile_definitions(parametrix PRIVATE
         MODELS_PATH="/models/"
         I18N_PATH="/i18n/"
+        SOURCE_ROOT="/"
+    )
+
+    # Embed the generators directory into the virtual FS.
+    target_link_options(parametrix PRIVATE
+        "SHELL:--embed-file ${CMAKE_SOURCE_DIR}/generators@/generators"
     )
 
     # Embed the example model files into the virtual FS.
@@ -129,11 +139,24 @@ else()
         target_include_directories(parametrix PRIVATE ${SDL2_INCLUDE_DIRS})
         target_link_libraries(parametrix PRIVATE ${SDL2_LIBRARIES})
     endif()
+
+    # ---------------------------------------------------------------------------
+    # OpenSCAD command for desktop evaluation
+    # Default: system "openscad".  Override via -DOPENSCAD_CMD=... to use a
+    # container, e.g.:
+    #   -DOPENSCAD_CMD="podman run --rm -v /tmp:/tmp parametrix-openscad openscad"
+    # ---------------------------------------------------------------------------
+    set(OPENSCAD_CMD "openscad" CACHE STRING
+        "Command used to invoke OpenSCAD on desktop (can be a container wrapper)")
+    message(STATUS "OpenSCAD command: ${OPENSCAD_CMD}")
+
     # GL_GLEXT_PROTOTYPES: declare GL3+ functions directly from Mesa's libGL.so
     target_compile_definitions(parametrix PRIVATE
         GL_GLEXT_PROTOTYPES
         MODELS_PATH="${CMAKE_SOURCE_DIR}/models/"
         I18N_PATH="${CMAKE_SOURCE_DIR}/i18n/"
+        SOURCE_ROOT="${CMAKE_SOURCE_DIR}/"
+        OPENSCAD_CMD="${OPENSCAD_CMD}"
     )
 endif()
 

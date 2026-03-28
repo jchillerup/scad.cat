@@ -1,5 +1,8 @@
 #include "i18n.h"
 #include "scad_eval.h"
+#include "generator.h"
+#include "generator_ui.h"
+#include "scad_builder.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
@@ -43,9 +46,7 @@ EM_JS(void, js_set_clipboard, (const char* str), {
         navigator.clipboard.writeText(text).catch(function(){});
 });
 
-// Expose the current SCAD source buffer to JS for testing.
-// Called once per frame; updates globalThis._scadBuf so tests can assert on
-// the actual buffer content without going through the C++ eval pipeline.
+// Expose the current generated SCAD source to JS for testing.
 EM_JS(void, js_set_scad_buf, (const char* buf), {
     globalThis._scadBuf = UTF8ToString(buf);
 });
@@ -70,8 +71,6 @@ EM_JS(void, js_download_bytes, (const uint8_t* data, int len, const char* filena
 // App state
 // ---------------------------------------------------------------------------
 
-static constexpr int SCAD_BUF_SIZE = 32 * 1024;
-
 struct AppState {
     SDL_Window*   window     = nullptr;
     SDL_GLContext gl_context = nullptr;
@@ -79,19 +78,23 @@ struct AppState {
     ImVec4        clear_color{0.18f, 0.18f, 0.20f, 1.00f};
     MeshViewer    viewer;
 
-    char        scad_buf[SCAD_BUF_SIZE] = {};
+    GeneratorDesc  active_generator;
+    ParamValues    param_values;
+    std::string    generated_scad;
+    bool           show_scad_source = false;
+
     EvalStatus  eval_status   = EvalStatus::Idle;
     std::string eval_error;
-    double      scad_last_edit = -1.0;  // ImGui time of last keystroke, -1 = idle
-    std::string paste_pending;           // deferred paste: inject once Ctrl is released
-    std::string imgui_clipboard;         // mirrors ImGui's internal clipboard
-    std::string imgui_clipboard_last;    // last value pushed to system clipboard
+    double      scad_last_edit = -1.0;  // ImGui time of last param change, -1 = idle
+    std::string paste_pending;
+    std::string imgui_clipboard;
+    std::string imgui_clipboard_last;
     bool        show_catalonia = false;
-    Language    language          = Language::English;
+    Language    language       = Language::English;
     std::vector<uint8_t> current_stl;
 };
 
-static constexpr double DEBOUNCE_SECS = 0.1;
+static constexpr double DEBOUNCE_SECS = 0.5;
 
 static AppState g_app;
 
@@ -120,20 +123,15 @@ static void MainLoopStep()
 #ifdef __EMSCRIPTEN__
     // Inject any clipboard paste text that arrived via the JS paste event.
     {
-        // Buffer incoming paste (arrives while Ctrl is still held).
         char* paste_text = js_take_pending_paste();
         if (paste_text) {
             g_app.paste_pending = paste_text;
             free(paste_text);
         }
-        // Inject once Ctrl is released — ImGui ignores InputQueueCharacters while
-        // any Ctrl modifier is held (it assumes Ctrl+key = shortcut, not text input).
         if (!g_app.paste_pending.empty() && !ImGui::GetIO().KeyCtrl) {
             ImGui::GetIO().AddInputCharactersUTF8(g_app.paste_pending.c_str());
             g_app.paste_pending.clear();
         }
-        // Poll: if ImGui's internal clipboard changed this frame (via Ctrl+C, Ctrl+X,
-        // or any other copy action), push the new content to the system clipboard.
         if (g_app.imgui_clipboard != g_app.imgui_clipboard_last) {
             js_set_clipboard(g_app.imgui_clipboard.c_str());
             g_app.imgui_clipboard_last = g_app.imgui_clipboard;
@@ -200,15 +198,6 @@ static void MainLoopStep()
         ImGui::End();
     }
 
-    // ---- Info window -------------------------------------------------------
-    ImGui::Begin(_("Info"));
-    {
-        ImGuiIO& io = ImGui::GetIO();
-        ImGui::Text("Viewport: %.0f x %.0f", io.DisplaySize.x, io.DisplaySize.y);
-        ImGui::Text("%.1f FPS", io.Framerate);
-    }
-    ImGui::End();
-
     // ---- WASM: poll for completed async evaluation -------------------------
 #ifdef __EMSCRIPTEN__
     if (g_app.eval_status == EvalStatus::Pending) {
@@ -218,18 +207,18 @@ static void MainLoopStep()
     }
 #endif
 
-    // ---- Evaluate helper (button + debounce) --------------------------------
+    // ---- Evaluate helper ---------------------------------------------------
     auto do_evaluate = [&]() {
 #ifdef __EMSCRIPTEN__
-        scad_eval_start(g_app.scad_buf);
+        scad_eval_start(g_app.generated_scad.c_str());
         g_app.eval_status = EvalStatus::Pending;
 #else
-        g_app.eval_status = scad_eval_sync(g_app.scad_buf, g_app.viewer,
+        g_app.eval_status = scad_eval_sync(g_app.generated_scad.c_str(), g_app.viewer,
                                             g_app.current_stl, g_app.eval_error);
 #endif
     };
 
-    // ---- Debounce: trigger evaluate after the last keystroke ---------------
+    // ---- Debounce: trigger evaluate after the last param change ------------
     bool can_evaluate = (g_app.eval_status != EvalStatus::Pending);
     if (can_evaluate && g_app.scad_last_edit >= 0.0 &&
         (ImGui::GetTime() - g_app.scad_last_edit) >= DEBOUNCE_SECS)
@@ -238,37 +227,59 @@ static void MainLoopStep()
         do_evaluate();
     }
 
-    // ---- SCAD source editor ------------------------------------------------
-    ImGui::SetNextWindowSize({480, 400}, ImGuiCond_FirstUseEver);
-    ImGui::Begin(_("SCAD Source"));
+    // ---- Generator panel ---------------------------------------------------
+    ImGui::SetNextWindowSize({320, 480}, ImGuiCond_FirstUseEver);
+    ImGui::Begin(_("Generator"));
     {
-        ImGui::InputTextMultiline(
-            "##scad", g_app.scad_buf, SCAD_BUF_SIZE,
-            ImVec2(-1.0f, -ImGui::GetFrameHeightWithSpacing() - 4));
-
-        if (ImGui::IsItemEdited())
-            g_app.scad_last_edit = ImGui::GetTime();
-
-        if (!can_evaluate) ImGui::BeginDisabled();
-        if (ImGui::Button(_("Compile"))) {
-            g_app.scad_last_edit = -1.0; // cancel pending debounce
-            do_evaluate();
+        // Header: generator title + attribution
+        ImGui::TextDisabled("%s", g_app.active_generator.title.c_str());
+        if (!g_app.active_generator.author.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("  by %s", g_app.active_generator.author.c_str());
         }
-        if (!can_evaluate) ImGui::EndDisabled();
+        ImGui::Separator();
 
-        ImGui::SameLine();
-        if (g_app.scad_last_edit >= 0.0)
+        // Parameter widgets
+        if (render_generator_ui(g_app.active_generator, g_app.param_values)) {
+            g_app.generated_scad = build_scad(
+                g_app.active_generator,
+                g_app.param_values,
+                SOURCE_ROOT + g_app.active_generator.scad_file);
+            g_app.scad_last_edit = ImGui::GetTime();
+        }
+
+        ImGui::Separator();
+
+        // Status line
+        if (!can_evaluate)
+            ImGui::TextDisabled("%s", _("Compiling..."));
+        else if (g_app.scad_last_edit >= 0.0)
             ImGui::TextDisabled("...");
         else if (g_app.eval_status == EvalStatus::Idle)
             ImGui::TextDisabled("—");
-        else if (g_app.eval_status == EvalStatus::Pending)
-            ImGui::TextDisabled("%s", _("Compiling..."));
         else if (g_app.eval_status == EvalStatus::Ok)
             ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "%s", _("OK"));
         else
-            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", _(g_app.eval_error.c_str()));
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s",
+                               _(g_app.eval_error.c_str()));
+
+        ImGui::SameLine();
+        ImGui::Checkbox(_("Show SCAD"), &g_app.show_scad_source);
     }
     ImGui::End();
+
+    // ---- SCAD source viewer (read-only) ------------------------------------
+    if (g_app.show_scad_source) {
+        ImGui::SetNextWindowSize({560, 400}, ImGuiCond_FirstUseEver);
+        ImGui::Begin(_("SCAD Source"), &g_app.show_scad_source);
+        ImGui::InputTextMultiline(
+            "##scad_ro",
+            const_cast<char*>(g_app.generated_scad.c_str()),
+            g_app.generated_scad.size() + 1,
+            ImVec2(-1.0f, -1.0f),
+            ImGuiInputTextFlags_ReadOnly);
+        ImGui::End();
+    }
 
     // ---- 3D viewport: fills the entire OS window --------------------------
     {
@@ -333,7 +344,7 @@ static void MainLoopStep()
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 #ifdef __EMSCRIPTEN__
-    js_set_scad_buf(g_app.scad_buf);
+    js_set_scad_buf(g_app.generated_scad.c_str());
 #endif
     SDL_GL_SwapWindow(g_app.window);
 }
@@ -380,7 +391,7 @@ int main(int, char**)
     g_app.gl_context = SDL_GL_CreateContext(g_app.window);
     SDL_GL_MakeCurrent(g_app.window, g_app.gl_context);
 #ifndef __EMSCRIPTEN__
-    SDL_GL_SetSwapInterval(1); // vsync; on WASM rAF handles this
+    SDL_GL_SetSwapInterval(1);
 #endif
 
     IMGUI_CHECKVERSION();
@@ -394,12 +405,6 @@ int main(int, char**)
     ImGui_ImplOpenGL3_Init(glsl_version);
 
 #ifdef __EMSCRIPTEN__
-    // Override AFTER ImGui_ImplSDL2_InitForOpenGL — the SDL2 backend overwrites
-    // PlatformIO clipboard functions with SDL_SetClipboardText / SDL_GetClipboardText,
-    // which do nothing in a browser. We replace them with our JS bridge.
-    // Platform_GetClipboardTextFn returns our stored copy so ImGui-internal paste works.
-    // Platform_SetClipboardTextFn stores the text; polling detects the change and
-    // writes to the system clipboard (see per-frame code).
     ImGui::GetPlatformIO().Platform_GetClipboardTextFn = [](ImGuiContext*) -> const char* {
         return g_app.imgui_clipboard.c_str();
     };
@@ -410,19 +415,30 @@ int main(int, char**)
 
     g_app.viewer.Init(glsl_version);
 
-    // Load pre-generated example STL
-    const char* stl_path = MODELS_PATH "example.stl";
-    if (!g_app.viewer.LoadSTL(stl_path))
-        fprintf(stderr, "Could not load %s\n", stl_path);
+    // Load generator descriptor and build initial SCAD
+    const std::string gen_path =
+        SOURCE_ROOT "generators/gridfinity_extended/gridfinity_cup.json";
+    try {
+        g_app.active_generator = load_generator(gen_path);
+        g_app.param_values     = default_values(g_app.active_generator);
+        g_app.generated_scad   = build_scad(
+            g_app.active_generator,
+            g_app.param_values,
+            SOURCE_ROOT + g_app.active_generator.scad_file);
 
-    // Populate the SCAD editor with the example source
-    const char* scad_path = MODELS_PATH "example.scad";
-    { std::ifstream f(scad_path);
-      if (f) {
-          std::string src((std::istreambuf_iterator<char>(f)),
-                           std::istreambuf_iterator<char>());
-          strncpy(g_app.scad_buf, src.c_str(), SCAD_BUF_SIZE - 1);
-      } }
+        // Trigger initial evaluation
+#ifdef __EMSCRIPTEN__
+        scad_eval_start(g_app.generated_scad.c_str());
+        g_app.eval_status = EvalStatus::Pending;
+#else
+        g_app.eval_status = scad_eval_sync(g_app.generated_scad.c_str(),
+                                            g_app.viewer,
+                                            g_app.current_stl,
+                                            g_app.eval_error);
+#endif
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Generator load error: %s\n", e.what());
+    }
 
 #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(MainLoopStep, 0, true);

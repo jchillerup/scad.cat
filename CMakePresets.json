@@ -9,6 +9,16 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     },
     {
+      "name": "desktop-docker",
+      "displayName": "Desktop with containerised OpenSCAD",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/desktop-docker",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OPENSCAD_CMD": "podman run --rm --security-opt label=disable -v /tmp:/tmp localhost/parametrix-openscad openscad"
+      }
+    },
+    {
       "name": "desktop-release",
       "displayName": "Desktop (Release)",
       "generator": "Ninja",
@@ -28,6 +38,7 @@
   ],
   "buildPresets": [
     { "name": "desktop", "configurePreset": "desktop" },
+    { "name": "desktop-docker", "configurePreset": "desktop-docker" },
     { "name": "desktop-release", "configurePreset": "desktop-release" },
     { "name": "wasm", "configurePreset": "wasm" }
   ]

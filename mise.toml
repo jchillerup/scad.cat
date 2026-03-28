@@ -15,6 +15,22 @@ cmake --build build/desktop
 ./build/desktop/parametrix
 """
 
+[tasks.openscad-image]
+description = "Build the parametrix-openscad container image (requires podman or docker)"
+run = """
+RUNTIME=$(command -v podman || command -v docker)
+$RUNTIME build --security-opt seccomp=unconfined \
+    -t parametrix-openscad -f docker/openscad.dockerfile .
+"""
+
+[tasks.desktop-docker]
+description = "Build (if needed) and run the desktop app using containerised OpenSCAD"
+run = """
+cmake --preset desktop-docker
+cmake --build build/desktop-docker
+./build/desktop-docker/parametrix
+"""
+
 [tasks.wasm]
 description = "Build (if needed) and serve the WASM app on http://localhost:8080"
 run = """
