@@ -28,12 +28,12 @@ test('test', async ({ page }) => {
   );
   const bufBefore = await page.evaluate(() => globalThis._scadBuf);
 
-  // Paste via the hidden textarea (works in headless and headed)
+  // Paste via the window paste event (matches current shell.html implementation)
   const pasteText = 'sphere(5);';
   await page.evaluate((text) => {
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
-    window._pasteTA.dispatchEvent(
+    window.dispatchEvent(
       new ClipboardEvent('paste', { clipboardData: dt, bubbles: true })
     );
   }, pasteText);
