@@ -27,6 +27,7 @@ set(IMGUIZMO_SOURCES ${IMGUIZMO_DIR}/ImGuizmo.cpp)
 # ---------------------------------------------------------------------------
 add_executable(parametrix
     src/main.cpp
+    src/scad_eval.cpp
     src/viewer.cpp
     ${IMGUI_SOURCES}
     ${IMGUIZMO_SOURCES}

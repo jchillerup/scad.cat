@@ -1,4 +1,5 @@
 #include "i18n.h"
+#include "scad_eval.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
 #include "imgui_impl_opengl3.h"
@@ -21,42 +22,7 @@
 #  include <GLES3/gl3.h>
 #endif
 
-// ---------------------------------------------------------------------------
-// OpenSCAD integration
-// ---------------------------------------------------------------------------
-
 #ifdef __EMSCRIPTEN__
-
-// Kick off an async evaluation. A *fresh* OpenSCAD instance is created each
-// time so the Emscripten runtime never hits the post-exit state on re-use.
-// State is written to globalThis._scadEvalStatus / _scadStlBytes.
-EM_JS(void, js_start_scad_eval, (const char* scad), {
-    if (globalThis._scadEvalStatus === 'running') return;
-    globalThis._scadEvalStatus = 'running';
-    globalThis._scadStlBytes   = null;
-    const text = UTF8ToString(scad);
-    (async () => {
-        try {
-            const os   = await globalThis._openscadFactory({ noInitialRun: true });
-            os.FS.writeFile('/model.scad', text);
-            const code = os.callMain([
-                '/model.scad',
-                '--enable=manifold',
-                '--export-format', 'binstl',
-                '-o', '/out.stl'
-            ]);
-            if (code === 0) {
-                globalThis._scadStlBytes   = os.FS.readFile('/out.stl', { encoding: 'binary' });
-                globalThis._scadEvalStatus = 'done';
-            } else {
-                globalThis._scadEvalStatus = 'error';
-            }
-        } catch(e) {
-            console.error('[openscad]', e);
-            globalThis._scadEvalStatus = 'error';
-        }
-    })();
-});
 
 // Clipboard: take any pending paste text (returns malloc'd C string or null).
 // Caller must free(). Clears _pendingPaste so each chunk is delivered once.
@@ -91,58 +57,6 @@ EM_JS(void, js_download_bytes, (const uint8_t* data, int len, const char* filena
     URL.revokeObjectURL(url);
 });
 
-// Poll: 0 = still running, 1 = done OK, -1 = error
-EM_JS(int, js_scad_eval_status, (), {
-    if (globalThis._scadEvalStatus === 'running') return 0;
-    if (globalThis._scadEvalStatus === 'done')    return 1;
-    return -1;
-});
-
-// Retrieve result (only call when status == 1).
-// Allocates buffer in our heap; caller must free(). Returns byte count.
-EM_JS(int, js_scad_get_result, (uint8_t** out_ptr), {
-    const bytes = globalThis._scadStlBytes;
-    if (!bytes || !bytes.length) return 0;
-    const ptr = _malloc(bytes.length);
-    HEAPU8.set(bytes, ptr);
-    setValue(out_ptr, ptr, 'i32');
-    globalThis._scadEvalStatus = null;
-    globalThis._scadStlBytes   = null;
-    return bytes.length;
-});
-
-#else // desktop
-
-// Run openscad as a subprocess, write result into viewer.
-// Returns true on success.
-static bool desktop_evaluate_scad(const char* scad_source,
-                                   MeshViewer& viewer,
-                                   std::string& status,
-                                   std::vector<uint8_t>& out_stl)
-{
-    const std::string tmp_scad = "/tmp/parametrix_eval.scad";
-    const std::string tmp_stl  = "/tmp/parametrix_eval.stl";
-
-    { std::ofstream f(tmp_scad);
-      if (!f) { status = "Error: cannot write " + tmp_scad; return false; }
-      f << scad_source; }
-
-    std::string cmd = "openscad --export-format binstl -o " + tmp_stl + " " + tmp_scad + " 2>&1";
-    int ret = std::system(cmd.c_str());
-    if (ret != 0) { status = "Compilation failed (see terminal)"; return false; }
-
-    if (!viewer.LoadSTL(tmp_stl.c_str())) {
-        status = "Error: could not load output STL";
-        return false;
-    }
-
-    { std::ifstream f(tmp_stl, std::ios::binary);
-      out_stl.assign(std::istreambuf_iterator<char>(f), {}); }
-
-    status = "OK";
-    return true;
-}
-
 #endif // __EMSCRIPTEN__
 
 // ---------------------------------------------------------------------------
@@ -159,10 +73,10 @@ struct AppState {
     MeshViewer    viewer;
 
     char        scad_buf[SCAD_BUF_SIZE] = {};
-    std::string scad_status;
-    double      scad_last_edit    = -1.0;  // ImGui time of last keystroke, -1 = idle
-    bool        scad_eval_pending = false; // WASM: async eval in flight
-    bool        show_catalonia    = false;
+    EvalStatus  eval_status   = EvalStatus::Idle;
+    std::string eval_error;
+    double      scad_last_edit = -1.0;  // ImGui time of last keystroke, -1 = idle
+    bool        show_catalonia = false;
     Language    language          = Language::English;
     std::vector<uint8_t> current_stl;
 };
@@ -274,41 +188,26 @@ static void MainLoopStep()
 
     // ---- WASM: poll for completed async evaluation -------------------------
 #ifdef __EMSCRIPTEN__
-    if (g_app.scad_eval_pending) {
-        int st = js_scad_eval_status();
-        if (st == 1) {
-            uint8_t* ptr = nullptr;
-            int      len = js_scad_get_result(&ptr);
-            if (len > 0 && ptr) {
-                g_app.current_stl.assign(ptr, ptr + len);
-                g_app.viewer.LoadSTLFromMemory(ptr, (size_t)len);
-                free(ptr);
-                g_app.scad_status = "OK";
-            } else {
-                g_app.scad_status = "Compilation failed";
-            }
-            g_app.scad_eval_pending = false;
-        } else if (st == -1) {
-            g_app.scad_status     = "Compilation failed";
-            g_app.scad_eval_pending = false;
-        }
-        // st == 0: still running — keep polling
+    if (g_app.eval_status == EvalStatus::Pending) {
+        EvalStatus st = scad_eval_poll(g_app.viewer, g_app.current_stl, g_app.eval_error);
+        if (st != EvalStatus::Pending)
+            g_app.eval_status = st;
     }
 #endif
 
     // ---- Evaluate helper (button + debounce) --------------------------------
     auto do_evaluate = [&]() {
 #ifdef __EMSCRIPTEN__
-        js_start_scad_eval(g_app.scad_buf);
-        g_app.scad_status       = "Compiling...";
-        g_app.scad_eval_pending = true;
+        scad_eval_start(g_app.scad_buf);
+        g_app.eval_status = EvalStatus::Pending;
 #else
-        desktop_evaluate_scad(g_app.scad_buf, g_app.viewer, g_app.scad_status, g_app.current_stl);
+        g_app.eval_status = scad_eval_sync(g_app.scad_buf, g_app.viewer,
+                                            g_app.current_stl, g_app.eval_error);
 #endif
     };
 
-    // ---- Debounce: trigger evaluate 1 s after the last keystroke -----------
-    bool can_evaluate = !g_app.scad_eval_pending;
+    // ---- Debounce: trigger evaluate after the last keystroke ---------------
+    bool can_evaluate = (g_app.eval_status != EvalStatus::Pending);
     if (can_evaluate && g_app.scad_last_edit >= 0.0 &&
         (ImGui::GetTime() - g_app.scad_last_edit) >= DEBOUNCE_SECS)
     {
@@ -337,12 +236,14 @@ static void MainLoopStep()
         ImGui::SameLine();
         if (g_app.scad_last_edit >= 0.0)
             ImGui::TextDisabled("...");
-        else if (g_app.scad_status.empty())
+        else if (g_app.eval_status == EvalStatus::Idle)
             ImGui::TextDisabled("—");
-        else if (g_app.scad_status == "OK")
+        else if (g_app.eval_status == EvalStatus::Pending)
+            ImGui::TextDisabled("%s", _("Compiling..."));
+        else if (g_app.eval_status == EvalStatus::Ok)
             ImGui::TextColored({0.4f, 1.0f, 0.4f, 1.0f}, "%s", _("OK"));
         else
-            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", _(g_app.scad_status.c_str()));
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", _(g_app.eval_error.c_str()));
     }
     ImGui::End();
 
