@@ -36,3 +36,12 @@ run = "npx playwright test"
 [tasks.test-ui]
 description = "Open Playwright's interactive test UI"
 run = "npx playwright test --ui"
+
+[tasks.test-record]
+description = "Open Playwright codegen to record a new test (starts HTTP server automatically)"
+run = """
+python3 -m http.server 8080 --directory build/wasm &
+SERVER_PID=$!
+trap "kill $SERVER_PID" EXIT
+npx playwright codegen http://localhost:8080
+"""
