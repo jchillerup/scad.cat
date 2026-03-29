@@ -7,14 +7,9 @@ built on Dear ImGui + SDL2 + OpenGL3. Live at [scad.cat](https://scad.cat).
 
 The goal is to give users a fast, responsive web app for configuring popular
 parametric OpenSCAD projects — Gridfinity bins, Gridfinity baseplates,
-OpenGrid, and many more. Each "project" is an OpenSCAD library with exposed
-parameters; the app provides a tailored UI for those parameters, compiles the
-resulting SCAD source on the fly, and renders the mesh in a 3D viewport.
-
-The current codebase renders a single example SCAD file and exposes a raw
-source editor — that is scaffolding for the above, not the end goal. Future
-work will add per-project parameter panels that drive SCAD code generation
-without exposing raw source to the user.
+OpenGrid, and many more. Each "generator" is an OpenSCAD library paired with
+a JSON parameter schema; the app builds a tailored UI from the schema, compiles
+the resulting SCAD source on the fly, and renders the mesh in a 3D viewport.
 
 ---
 
@@ -25,19 +20,24 @@ without exposing raw source to the user.
 | `src/main.cpp` | SDL/GL init, AppState, ImGui render loop, platform glue |
 | `src/scad_eval.h/cpp` | OpenSCAD evaluation — three backends behind one interface |
 | `src/viewer.h/cpp` | FBO-based 3D mesh viewer, STL parser, orbit camera |
+| `src/generator.h/cpp` | Generator registry; loads JSON schemas from `generators/` |
+| `src/generator_ui.h/cpp` | ImGui panel that renders a generator's parameters |
+| `src/scad_builder.h/cpp` | Translates parameter values into SCAD source |
 | `src/i18n.h` | `.po` parser and `_()` underscore lookup function |
 | `web/shell.html` | Emscripten HTML shell; JS clipboard + browser-shortcut handling |
 | `i18n/*.po` | Translations (GNU gettext format) |
-| `models/example.scad` | Default model loaded on startup |
+| `generators/` | Bundled generators — each subdir has `*.scad` + `*.json` schema |
+| `models/example.scad` | Fallback model |
 | `CMakeLists.txt` | Single build file for desktop + WASM |
 | `CMakePresets.json` | `desktop` / `desktop-release` / `wasm` presets |
-| `mise.toml` | Toolchain (cmake, ninja, emsdk) + `mise run desktop/wasm` tasks |
-| `.github/workflows/deploy.yml` | Build WASM → deploy to Cloudflare Pages |
+| `mise.toml` | Toolchain + tasks: `desktop`, `wasm`, `build-openscad` |
+| `.github/workflows/deploy.yml` | Build WASM → run Playwright tests → deploy to Cloudflare Pages |
 | `openscad-lib/CMakeLists.txt` | Builds OpenSCAD headless as a static library for desktop |
-| `openscad-lib/Dockerfile` | Multi-stage Emscripten build of OpenSCAD to WASM |
-| `openscad-lib/build-wasm.sh` | Runs the Docker WASM build; deposits artifacts |
+| `openscad-lib/Dockerfile` | Docker build: `openscad/wasm-base` + OpenSCAD source → WASM |
+| `openscad-lib/build-wasm.sh` | Runs the Docker WASM build; deposits artifacts into `web/openscad-wasm-dist/` |
 | `openscad-lib/src/openscad_api.h/cpp` | C wrapper: `openscad_evaluate()` → binary STL bytes |
 | `openscad-lib/upstream/openscad/` | git submodule: `openscad/openscad` main branch |
+| `web/openscad-wasm-dist/` | Compiled WASM artifacts — committed to the repo |
 
 ---
 
@@ -54,9 +54,8 @@ at compile time:
 | `USE_OPENSCAD_LIB` (desktop) | Linked library | `openscad_evaluate()` in `openscad-lib/src/openscad_api.cpp` calls `openscad_main()` directly |
 | neither (desktop) | Subprocess | `std::system("openscad ...")` with temp files; result read from `/tmp/*.stl` |
 
-The linked-library and WASM backends both use the same OpenSCAD source tree
-(`openscad-lib/upstream/openscad`), the same Manifold geometry kernel, and the
-same compile flags — so behaviour is identical across platforms.
+All three backends use the Manifold geometry kernel. WASM and linked-library
+use the same OpenSCAD source tree (`openscad-lib/upstream/openscad`).
 
 ### openscad-lib subproject
 
@@ -68,24 +67,33 @@ same compile flags — so behaviour is identical across platforms.
   `HEADLESS=ON NULLGL=ON ENABLE_CGAL=OFF ENABLE_MANIFOLD=ON EXPERIMENTAL=ON`.
   No Qt, no OpenGL, no CGAL/GMP/MPFR.
 
-- **WASM** (`./openscad-lib/build-wasm.sh`):
-  Docker multi-stage build using Emscripten 4.0.10. Compiles all dependencies
-  from source into the Emscripten sysroot, then builds OpenSCAD with `emcmake
-  cmake`. Produces `openscad.js` (ES6 module factory) + `openscad.wasm`.
+- **WASM** (`mise run build-openscad`):
+  Docker build using `openscad/wasm-base:latest` — the Docker image maintained
+  by the OpenSCAD project with all dependencies (Boost, CGAL, GMP, MPFR,
+  Freetype, HarfBuzz, FontConfig, etc.) pre-built for Emscripten 4.0.10.
+  Builds OpenSCAD with `emcmake cmake` and produces `openscad.js` (ES6 module
+  factory) + `openscad.wasm`. The compiled artifacts are **committed to the
+  repo** in `web/openscad-wasm-dist/`, so CI and fresh clones need no Docker.
 
 The OpenSCAD executable output name on Linux is `openscad`, so Emscripten
-produces `openscad.js` + `openscad.wasm` — matching the ES6 import already in
+produces `openscad.js` + `openscad.wasm` — matching the ES6 import in
 `shell.html`.
+
+### Why Manifold is explicitly selected
+
+The WASM build uses full OpenSCAD with CGAL enabled, so CGAL is the default
+geometry backend. `scad_eval.cpp` passes `--backend Manifold` in the
+`callMain()` arguments to force the faster, more predictable Manifold backend.
+The desktop subprocess mode uses the same flag.
 
 ### Why fresh WASM instances per evaluation
 
-`openscad-wasm` calls `exit()` internally after `callMain()` returns. Emscripten
-tears down the runtime on exit. Re-calling `callMain()` on the same instance
-crashes with a cryptic integer error. **Fix:** create a new `OpenSCAD()` factory
-instance for every evaluation.
+OpenSCAD calls `exit()` after `callMain()` returns. Emscripten tears down the
+runtime on exit. Re-calling `callMain()` on the same instance crashes.
+**Fix:** create a new `OpenSCAD()` factory instance for every evaluation.
 
-The factory is stored as `globalThis._openscadFactory` in `shell.html`. It must
-not be stored as `globalThis.OpenSCAD` because Emscripten's own shutdown
+The factory is stored as `globalThis._openscadFactory` in `shell.html`. It
+must not be stored as `globalThis.OpenSCAD` because Emscripten's own shutdown
 overwrites that name.
 
 ### Why polling instead of Asyncify
@@ -96,7 +104,7 @@ without Asyncify (which adds ~40% binary size and other constraints). Instead:
 - `scad_eval_start()` kicks off an async IIFE and writes status to
   `globalThis._scadEvalStatus`.
 - `scad_eval_poll()` reads that global each frame (0 = running, 1 = done, -1 = error).
-- `scad_eval_finish()` retrieves the result bytes when poll returns 1.
+- When poll returns 1, the result bytes are retrieved and loaded into the viewer.
 
 ### openscad_api.cpp global-state note
 
@@ -118,28 +126,32 @@ must **not** have this flag, or they will appear behind the viewport.
 
 ### WASM artifact lifecycle
 
-`web/openscad-wasm-dist/` holds the built WASM files. They are **not**
-downloaded at CMake time anymore. Workflow:
+`web/openscad-wasm-dist/openscad.js` and `openscad.wasm` are committed to the
+repo. Normal workflow:
 
-1. `./openscad-lib/build-wasm.sh` — builds and places `openscad.js` +
-   `openscad.wasm` in `web/openscad-wasm-dist/`
-2. `mise run wasm` — CMake copies them to the build directory at link time.
+1. `mise run wasm` — CMake copies them to the build directory at link time.
 
-If the files are missing, CMake fails with a message pointing to `build-wasm.sh`.
+To rebuild from source (after updating the OpenSCAD submodule, or to change
+build flags):
 
-The legacy `openscad.wasm.js` (present only from the old 2022 pre-built
-artifacts) is copied if it exists, silently ignored if not.
+1. `mise run build-openscad` — runs `openscad-lib/build-wasm.sh`, which
+   Docker-builds against `openscad/wasm-base:latest` and replaces the files in
+   `web/openscad-wasm-dist/`.
+2. Commit the updated artifacts.
+
+If the artifact files are missing, CMake fails with a message pointing to
+`build-wasm.sh`.
 
 ### openscad-lib submodule initialisation
 
-`openscad-lib/upstream/openscad` is a git submodule. Its own nested submodules
-(`submodules/manifold`, `submodules/Clipper2`) must be initialised before
-building:
+`openscad-lib/upstream/openscad` is a git submodule. Its nested submodules
+(`submodules/manifold`, `submodules/Clipper2`, `submodules/sanitizers-cmake`)
+must be initialised before building:
 
 ```bash
 git submodule update --init openscad-lib/upstream/openscad
 git -C openscad-lib/upstream/openscad submodule update --init \
-    submodules/manifold submodules/Clipper2
+    submodules/manifold submodules/Clipper2 submodules/sanitizers-cmake
 ```
 
 `build-wasm.sh` does this automatically if needed.
@@ -166,11 +178,12 @@ set_property(TARGET parametrix APPEND PROPERTY LINK_DEPENDS
     ${CMAKE_SOURCE_DIR}/web/shell.html)
 ```
 
-### `MODELS_PATH` and `I18N_PATH`
+### `MODELS_PATH`, `I18N_PATH`, `SOURCE_ROOT`
 
 Compile-time string macros:
-- Desktop: absolute path to the source tree (`${CMAKE_SOURCE_DIR}/models/`)
-- WASM: virtual FS path (`/models/`), with files embedded via `--embed-file`
+- Desktop: absolute paths to the source tree
+- WASM: virtual FS paths (`/models/`, `/i18n/`, `/`), with files embedded via
+  `--embed-file`
 
 ### Desktop GL without GLAD/GLEW
 
@@ -207,6 +220,22 @@ Browser shortcuts (F12, Ctrl+Shift+I, etc.) are rescued from SDL's
 - Add new languages by: (1) creating `i18n/<lang>.po`, (2) adding a `Language`
   enum value, (3) adding a menu item and `set_language` call in `main.cpp`,
   (4) embedding the file for WASM in `CMakeLists.txt`.
+
+---
+
+## Generators
+
+A generator is a directory under `generators/` containing:
+- One or more `.scad` files (the OpenSCAD library)
+- A `.json` schema describing the exposed parameters
+
+`src/generator.cpp` scans `SOURCE_ROOT/generators/` at startup and registers
+each discovered generator. `src/generator_ui.cpp` renders the parameter panel
+for the selected generator. `src/scad_builder.cpp` assembles the SCAD source
+from the current parameter values and hands it to `scad_eval`.
+
+For WASM, the entire `generators/` directory is embedded into the virtual
+filesystem via `--embed-file` in `CMakeLists.txt`.
 
 ---
 
