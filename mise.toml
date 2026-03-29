@@ -31,6 +31,10 @@ cmake --build build/desktop-docker
 ./build/desktop-docker/parametrix
 """
 
+[tasks.build-openscad]
+description = "Compile OpenSCAD from source to WASM (requires Docker or Podman); updates web/openscad-wasm-dist/"
+run = "./openscad-lib/build-wasm.sh"
+
 [tasks.wasm]
 description = "Build (if needed) and serve the WASM app on http://localhost:8080"
 run = """

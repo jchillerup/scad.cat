@@ -25,7 +25,7 @@ EM_JS(void, js_start_scad_eval, (const char* scad), {
             os.FS.writeFile('/model.scad', text);
             const code = os.callMain([
                 '/model.scad',
-                '--enable=manifold',
+                '--backend', 'Manifold',
                 '--export-format', 'binstl',
                 '-o', '/out.stl'
             ]);
@@ -96,7 +96,38 @@ EvalStatus scad_eval_poll(MeshViewer& viewer,
     return EvalStatus::Error;
 }
 
-#else // desktop
+#elif defined(USE_OPENSCAD_LIB) // desktop via linked library
+
+#include "openscad_api.h"
+
+// ---------------------------------------------------------------------------
+// Desktop: direct library call (no subprocess)
+// ---------------------------------------------------------------------------
+
+EvalStatus scad_eval_sync(const char* source,
+                          MeshViewer& viewer,
+                          std::vector<uint8_t>& out_stl,
+                          std::string& error_msg)
+{
+    uint8_t* stl  = nullptr;
+    size_t   len  = 0;
+    char*    err  = nullptr;
+
+    const int rc = openscad_evaluate(source, &stl, &len, &err);
+
+    if (rc != 0) {
+        error_msg = err ? err : "OpenSCAD evaluation failed";
+        openscad_free(err);
+        return EvalStatus::Error;
+    }
+
+    out_stl.assign(stl, stl + len);
+    viewer.LoadSTLFromMemory(stl, len);
+    openscad_free(stl);
+    return EvalStatus::Ok;
+}
+
+#else // desktop via subprocess
 
 // ---------------------------------------------------------------------------
 // Desktop: synchronous subprocess evaluation
@@ -138,4 +169,4 @@ EvalStatus scad_eval_sync(const char* source,
     return EvalStatus::Ok;
 }
 
-#endif // __EMSCRIPTEN__
+#endif // __EMSCRIPTEN__ / USE_OPENSCAD_LIB / subprocess

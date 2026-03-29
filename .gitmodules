@@ -10,3 +10,9 @@
 [submodule "external/nlohmann_json"]
 	path = external/nlohmann_json
 	url = https://github.com/nlohmann/json.git
+[submodule "openscad-lib/upstream/openscad"]
+	path = openscad-lib/upstream/openscad
+	url = https://github.com/openscad/openscad.git
+[submodule "openscad-lib/upstream/manifold"]
+	path = openscad-lib/upstream/manifold
+	url = https://github.com/elalish/manifold.git

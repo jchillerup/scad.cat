@@ -16,12 +16,6 @@ jobs:
 
       - uses: jdx/mise-action@v2
 
-      - name: Cache openscad-wasm assets
-        uses: actions/cache@v4
-        with:
-          path: web/openscad-wasm-dist
-          key: openscad-wasm-2022.03.20
-
       - name: Configure (WASM)
         run: mise exec -- cmake --preset wasm
 

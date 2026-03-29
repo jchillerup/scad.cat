@@ -97,37 +97,39 @@ if(EMSCRIPTEN)
     endforeach()
 
     # ---------------------------------------------------------------------------
-    # openscad-wasm pre-built assets
-    # Downloaded once to web/openscad-wasm-dist/, then copied to the build dir.
+    # OpenSCAD WASM assets
+    # Built from source by running:  ./openscad-lib/build-wasm.sh
+    # Placed in web/openscad-wasm-dist/ and copied to the build dir at build time.
     # ---------------------------------------------------------------------------
-    set(OSCAD_WASM_TAG "2022.03.20")
-    set(OSCAD_WASM_BASE "https://github.com/openscad/openscad-wasm/releases/download/${OSCAD_WASM_TAG}")
-    set(OSCAD_WASM_CACHE "${CMAKE_SOURCE_DIR}/web/openscad-wasm-dist")
-    file(MAKE_DIRECTORY "${OSCAD_WASM_CACHE}")
+    set(OSCAD_WASM_DIST "${CMAKE_SOURCE_DIR}/web/openscad-wasm-dist")
 
-    foreach(fname openscad.js openscad.wasm.js openscad.wasm)
-        if(NOT EXISTS "${OSCAD_WASM_CACHE}/${fname}")
-            message(STATUS "Downloading openscad-wasm: ${fname} ...")
-            file(DOWNLOAD
-                "${OSCAD_WASM_BASE}/${fname}"
-                "${OSCAD_WASM_CACHE}/${fname}"
-                SHOW_PROGRESS
-                STATUS dl_status
+    # Required files from either the legacy 2022 build or a freshly compiled build.
+    foreach(fname openscad.js openscad.wasm)
+        if(NOT EXISTS "${OSCAD_WASM_DIST}/${fname}")
+            message(FATAL_ERROR
+                "Missing WASM artifact: ${OSCAD_WASM_DIST}/${fname}\n"
+                "Build it first:  ./openscad-lib/build-wasm.sh"
             )
-            list(GET dl_status 0 dl_ok)
-            if(NOT dl_ok EQUAL 0)
-                list(GET dl_status 1 dl_err)
-                message(FATAL_ERROR "Failed to download ${fname}: ${dl_err}")
-            endif()
         endif()
-        # Copy to build output so files are served alongside parametrix.html
         add_custom_command(TARGET parametrix POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${OSCAD_WASM_CACHE}/${fname}"
+                "${OSCAD_WASM_DIST}/${fname}"
                 "${CMAKE_BINARY_DIR}/${fname}"
-            COMMENT "Deploying openscad-wasm: ${fname}"
+            COMMENT "Deploying OpenSCAD WASM: ${fname}"
         )
     endforeach()
+
+    # openscad.wasm.js exists only in the legacy 2022 pre-built artifacts.
+    # The from-source build (build-wasm.sh) produces a single ES6 module, so
+    # this file will be absent after a fresh build.
+    if(EXISTS "${OSCAD_WASM_DIST}/openscad.wasm.js")
+        add_custom_command(TARGET parametrix POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${OSCAD_WASM_DIST}/openscad.wasm.js"
+                "${CMAKE_BINARY_DIR}/openscad.wasm.js"
+            COMMENT "Deploying OpenSCAD WASM (legacy): openscad.wasm.js"
+        )
+    endif()
 
 else()
     find_package(SDL2 REQUIRED)
@@ -141,14 +143,40 @@ else()
     endif()
 
     # ---------------------------------------------------------------------------
-    # OpenSCAD command for desktop evaluation
-    # Default: system "openscad".  Override via -DOPENSCAD_CMD=... to use a
-    # container, e.g.:
-    #   -DOPENSCAD_CMD="podman run --rm -v /tmp:/tmp parametrix-openscad openscad"
+    # OpenSCAD evaluation backend for desktop
+    #
+    # Option A (default): subprocess — system "openscad" binary, or a container.
+    #   cmake -DUSE_OPENSCAD_LIB=OFF -DOPENSCAD_CMD="openscad" ..
+    #
+    # Option B: linked library — builds OpenSCAD from openscad-lib/upstream/openscad
+    # with Manifold backend (no CGAL), no Qt.  Requires system packages:
+    #   Fedora:  boost-devel eigen3-devel harfbuzz-devel fontconfig-devel glib2-devel
+    #            double-conversion-devel libzip-devel freetype-devel libxml2-devel
+    #            flex bison
+    #   Ubuntu:  same with -dev suffix
+    #   cmake -DUSE_OPENSCAD_LIB=ON ..
     # ---------------------------------------------------------------------------
-    set(OPENSCAD_CMD "openscad" CACHE STRING
-        "Command used to invoke OpenSCAD on desktop (can be a container wrapper)")
-    message(STATUS "OpenSCAD command: ${OPENSCAD_CMD}")
+    option(USE_OPENSCAD_LIB
+        "Link OpenSCAD directly as a static library instead of shelling out"
+        OFF)
+
+    if(USE_OPENSCAD_LIB)
+        message(STATUS "OpenSCAD backend: linked library (openscad-lib)")
+        add_subdirectory(openscad-lib)
+        target_link_libraries(parametrix PRIVATE openscad_api)
+        target_compile_definitions(parametrix PRIVATE USE_OPENSCAD_LIB)
+    else()
+        # ---------------------------------------------------------------------------
+        # OpenSCAD command for desktop evaluation
+        # Default: system "openscad".  Override via -DOPENSCAD_CMD=... to use a
+        # container, e.g.:
+        #   -DOPENSCAD_CMD="podman run --rm -v /tmp:/tmp parametrix-openscad openscad"
+        # ---------------------------------------------------------------------------
+        set(OPENSCAD_CMD "openscad" CACHE STRING
+            "Command used to invoke OpenSCAD on desktop (can be a container wrapper)")
+        message(STATUS "OpenSCAD backend: subprocess (${OPENSCAD_CMD})")
+        target_compile_definitions(parametrix PRIVATE OPENSCAD_CMD="${OPENSCAD_CMD}")
+    endif()
 
     # GL_GLEXT_PROTOTYPES: declare GL3+ functions directly from Mesa's libGL.so
     target_compile_definitions(parametrix PRIVATE
@@ -156,7 +184,6 @@ else()
         MODELS_PATH="${CMAKE_SOURCE_DIR}/models/"
         I18N_PATH="${CMAKE_SOURCE_DIR}/i18n/"
         SOURCE_ROOT="${CMAKE_SOURCE_DIR}/"
-        OPENSCAD_CMD="${OPENSCAD_CMD}"
     )
 endif()
 
